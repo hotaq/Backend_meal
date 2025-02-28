@@ -53,6 +53,9 @@ app.use(cors({
 }));
 app.use(express.json());
 
+app.use((req,res,next)=> {
+  res.header('Access-Control-Allow-Origin', '*');
+  next();})
 // For local development, serve static files
 if (process.env.NODE_ENV !== 'production') {
   app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
