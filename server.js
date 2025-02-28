@@ -6,10 +6,41 @@ const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const mongoose = require('mongoose');
 
 // Initialize express app
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Connect to MongoDB
+mongoose.connect(process.env.MONGODB_URI)
+  .then(() => console.log('Connected to MongoDB'))
+  .catch(err => console.error('Could not connect to MongoDB', err));
+
+// Define MongoDB Schemas and Models
+const userSchema = new mongoose.Schema({
+  username: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  createdAt: { type: Date, default: Date.now }
+});
+
+const mealSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  imagePath: { type: String },
+  imageBuffer: { type: Buffer },
+  isComplete: { type: Boolean, default: false },
+  nutritionalInfo: {
+    proteins: { type: Number },
+    carbs: { type: Number },
+    fats: { type: Number },
+    calories: { type: Number }
+  },
+  suggestions: [{ type: String }],
+  createdAt: { type: Date, default: Date.now }
+});
+
+const User = mongoose.model('User', userSchema);
+const Meal = mongoose.model('Meal', mealSchema);
 
 // Middleware
 app.use(cors({
@@ -22,10 +53,6 @@ app.use(express.json());
 if (process.env.NODE_ENV !== 'production') {
   app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 }
-
-// Simple in-memory storage for demo purposes
-const users = [];
-const mealAnalyses = [];
 
 // Configure multer for file uploads
 const storage = multer.memoryStorage();
@@ -74,7 +101,7 @@ app.post('/auth/register', async (req, res) => {
     const { username, password } = req.body;
     
     // Check if user already exists
-    const existingUser = users.find(user => user.username === username);
+    const existingUser = await User.findOne({ username });
     if (existingUser) {
       return res.status(400).json({ message: 'User already exists' });
     }
@@ -84,18 +111,16 @@ app.post('/auth/register', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, salt);
     
     // Create new user
-    const userId = Date.now().toString();
-    const newUser = {
-      id: userId,
+    const newUser = new User({
       username,
       password: hashedPassword
-    };
+    });
     
-    users.push(newUser);
+    await newUser.save();
     
     // Create JWT token
     const token = jwt.sign(
-      { id: userId },
+      { id: newUser._id },
       process.env.JWT_SECRET || 'your-secret-key',
       { expiresIn: '1d' }
     );
@@ -103,7 +128,7 @@ app.post('/auth/register', async (req, res) => {
     res.status(201).json({
       token,
       user: {
-        id: userId,
+        id: newUser._id,
         username: newUser.username
       }
     });
@@ -118,7 +143,7 @@ app.post('/auth/login', async (req, res) => {
     const { username, password } = req.body;
     
     // Check if user exists
-    const user = users.find(user => user.username === username);
+    const user = await User.findOne({ username });
     if (!user) {
       return res.status(400).json({ message: 'Invalid credentials' });
     }
@@ -131,7 +156,7 @@ app.post('/auth/login', async (req, res) => {
     
     // Create JWT token
     const token = jwt.sign(
-      { id: user.id },
+      { id: user._id },
       process.env.JWT_SECRET || 'your-secret-key',
       { expiresIn: '1d' }
     );
@@ -139,7 +164,7 @@ app.post('/auth/login', async (req, res) => {
     res.json({
       token,
       user: {
-        id: user.id,
+        id: user._id,
         username: user.username
       }
     });
@@ -166,13 +191,12 @@ app.post('/api/v1/analyze-meal', auth, upload.single('image'), async (req, res) 
     const fats = Math.floor(Math.random() * 20) + 5;
     const calories = proteins * 4 + carbs * 4 + fats * 9;
     
-    // Save the image (in memory for serverless)
+    // Save the image (in MongoDB)
     const imageBuffer = req.file.buffer;
     const imageName = `meal_${Date.now()}.jpg`;
     
     // Create meal analysis record
-    const mealAnalysis = {
-      id: Date.now().toString(),
+    const mealAnalysis = new Meal({
       userId: req.user.id,
       imagePath: `/uploads/${imageName}`,
       imageBuffer: imageBuffer,
@@ -187,15 +211,14 @@ app.post('/api/v1/analyze-meal', auth, upload.single('image'), async (req, res) 
         'Add more vegetables for a balanced meal',
         'Consider adding a source of lean protein',
         'Include whole grains for fiber'
-      ],
-      createdAt: new Date()
-    };
+      ]
+    });
     
-    // Save to our in-memory database
-    mealAnalyses.push(mealAnalysis);
+    // Save to MongoDB
+    await mealAnalysis.save();
     
     // Return the analysis without the image buffer
-    const responseAnalysis = { ...mealAnalysis };
+    const responseAnalysis = mealAnalysis.toObject();
     delete responseAnalysis.imageBuffer;
     
     res.json(responseAnalysis);
@@ -207,16 +230,15 @@ app.post('/api/v1/analyze-meal', auth, upload.single('image'), async (req, res) 
 
 app.get('/api/v1/meal-history', auth, async (req, res) => {
   try {
-    // Get user's meal history from our in-memory database
-    const userMealHistory = mealAnalyses
-      .filter(meal => meal.userId === req.user.id)
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    // Get user's meal history from MongoDB
+    const userMealHistory = await Meal.find({ userId: req.user.id })
+      .sort({ createdAt: -1 });
     
     // Return the history without the image buffers
     const responseHistory = userMealHistory.map(meal => {
-      const mealCopy = { ...meal };
-      delete mealCopy.imageBuffer;
-      return mealCopy;
+      const mealObj = meal.toObject();
+      delete mealObj.imageBuffer;
+      return mealObj;
     });
     
     res.json(responseHistory);
