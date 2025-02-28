@@ -13,18 +13,18 @@ const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors({
-  origin: ['http://localhost:8000', 'http://localhost:5000', 'https://webcheck-frontend.vercel.app'],
+  origin: '*', // Allow all origins for now
   credentials: true
 }));
 app.use(express.json());
 
 // For local development, serve static files
 if (process.env.NODE_ENV !== 'production') {
-  app.use(express.static(path.join(__dirname, 'uploads')));
+  app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 }
 
 // Connect to MongoDB
-mongoose.connect(process.env.MONGODB_URI)
+mongoose.connect(process.env.MONGODB_URI || 'mongodb+srv://your-mongodb-uri')
   .then(() => console.log('MongoDB connected'))
   .catch(err => console.error('MongoDB connection error:', err));
 
