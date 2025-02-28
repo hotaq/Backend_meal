@@ -44,8 +44,10 @@ const Meal = mongoose.model('Meal', mealSchema);
 
 // Middleware
 app.use(cors({
-  origin: '*', // Allow all origins for now
-  credentials: true
+  origin: ['http://127.0.0.1:5500', 'http://localhost:5500', 'http://localhost:8000', 'http://127.0.0.1:8000'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token']
 }));
 app.use(express.json());
 
