@@ -106,15 +106,15 @@ const MealAnalysis = mongoose.model('MealAnalysis', mealAnalysisSchema);
 
 // Routes
 
-// Register new user
-app.post('/api/register', async (req, res) => {
+// Auth routes
+app.post('/auth/register', async (req, res) => {
   try {
     const { username, password } = req.body;
     
     // Check if user already exists
     const existingUser = await User.findOne({ username });
     if (existingUser) {
-      return res.status(400).json({ message: 'Username already exists' });
+      return res.status(400).json({ message: 'User already exists' });
     }
     
     // Hash password
@@ -122,22 +122,34 @@ app.post('/api/register', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, salt);
     
     // Create new user
-    const user = new User({
+    const newUser = new User({
       username,
       password: hashedPassword
     });
     
-    await user.save();
+    await newUser.save();
     
-    res.status(201).json({ message: 'User registered successfully' });
-  } catch (error) {
-    console.error('Registration error:', error);
+    // Create JWT token
+    const token = jwt.sign(
+      { id: newUser._id },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '1d' }
+    );
+    
+    res.status(201).json({
+      token,
+      user: {
+        id: newUser._id,
+        username: newUser.username
+      }
+    });
+  } catch (err) {
+    console.error('Registration error:', err);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Login user
-app.post('/api/login', async (req, res) => {
+app.post('/auth/login', async (req, res) => {
   try {
     const { username, password } = req.body;
     
@@ -155,8 +167,8 @@ app.post('/api/login', async (req, res) => {
     
     // Create JWT token
     const token = jwt.sign(
-      { id: user._id, username: user.username },
-      process.env.JWT_SECRET,
+      { id: user._id },
+      process.env.JWT_SECRET || 'your-secret-key',
       { expiresIn: '1d' }
     );
     
@@ -167,8 +179,8 @@ app.post('/api/login', async (req, res) => {
         username: user.username
       }
     });
-  } catch (error) {
-    console.error('Login error:', error);
+  } catch (err) {
+    console.error('Login error:', err);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -182,7 +194,7 @@ const auth = (req, res, next) => {
   }
   
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
     req.user = decoded;
     next();
   } catch (error) {
@@ -190,8 +202,8 @@ const auth = (req, res, next) => {
   }
 };
 
-// Upload and analyze meal
-app.post('/api/analyze-meal', auth, upload.single('image'), async (req, res) => {
+// API routes with version
+app.post('/api/v1/analyze-meal', auth, upload.single('image'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ message: 'No image uploaded' });
@@ -249,8 +261,7 @@ app.post('/api/analyze-meal', auth, upload.single('image'), async (req, res) => 
   }
 });
 
-// Get user's meal history
-app.get('/api/meal-history', auth, async (req, res) => {
+app.get('/api/v1/meal-history', auth, async (req, res) => {
   try {
     const mealHistory = await MealAnalysis.find({ userId: req.user.id })
       .sort({ createdAt: -1 });
