@@ -1,6 +1,5 @@
 require('dotenv').config();
 const express = require('express');
-const mongoose = require('mongoose');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -8,6 +7,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
+// Initialize express app
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -23,169 +23,35 @@ if (process.env.NODE_ENV !== 'production') {
   app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 }
 
-// Connect to MongoDB
-mongoose.connect(process.env.MONGODB_URI || 'mongodb+srv://your-mongodb-uri')
-  .then(() => console.log('MongoDB connected'))
-  .catch(err => console.error('MongoDB connection error:', err));
+// Simple in-memory storage for demo purposes
+const users = [];
+const mealAnalyses = [];
 
-// Storage configuration for Vercel (in-memory for serverless)
-let storage;
-
-// Check if running on Vercel (production)
-if (process.env.VERCEL) {
-  // For Vercel, we'll use MongoDB GridFS for file storage
-  const { GridFsStorage } = require('multer-gridfs-storage');
-  
-  // Create GridFS storage engine
-  storage = new GridFsStorage({
-    url: process.env.MONGODB_URI,
-    options: { useNewUrlParser: true, useUnifiedTopology: true },
-    file: (req, file) => {
-      return {
-        filename: `${Date.now()}-${file.originalname}`,
-        bucketName: 'uploads'
-      };
-    }
-  });
-} else {
-  // For local development, use disk storage
-  // Create upload directory if it doesn't exist
-  const uploadDir = path.join(__dirname, 'uploads');
-  if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir);
-  }
-  
-  storage = multer.diskStorage({
-    destination: function(req, file, cb) {
-      cb(null, path.join(__dirname, 'uploads'));
-    },
-    filename: function(req, file, cb) {
-      cb(null, Date.now() + path.extname(file.originalname));
-    }
-  });
-}
-
+// Configure multer for file uploads
+const storage = multer.memoryStorage();
 const upload = multer({ 
   storage: storage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
-  fileFilter: function(req, file, cb) {
-    if (!file.originalname.match(/\.(jpg|jpeg|png|gif)$/)) {
-      return cb(new Error('Only image files are allowed!'), false);
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed!'), false);
     }
-    cb(null, true);
   }
 });
 
-// Define User Schema
-const userSchema = new mongoose.Schema({
-  username: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-  createdAt: { type: Date, default: Date.now }
+// Add a simple root route for health check
+app.get('/', (req, res) => {
+  res.json({ message: 'Meal Checker API is running' });
 });
 
-// Define Meal Analysis Schema
-const mealAnalysisSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  imagePath: { type: String, required: true },
-  status: { type: String, enum: ['complete', 'incomplete'], required: true },
-  message: { type: String, required: true },
-  nutrition: {
-    calories: Number,
-    protein: Number,
-    carbs: Number,
-    fat: Number,
-    fiber: Number
-  },
-  suggestions: [String],
-  createdAt: { type: Date, default: Date.now }
+// Add a simple API route for testing
+app.get('/api', (req, res) => {
+  res.json({ message: 'Meal Checker API is ready' });
 });
 
-// Create models
-const User = mongoose.model('User', userSchema);
-const MealAnalysis = mongoose.model('MealAnalysis', mealAnalysisSchema);
-
-// Routes
-
-// Auth routes
-app.post('/auth/register', async (req, res) => {
-  try {
-    const { username, password } = req.body;
-    
-    // Check if user already exists
-    const existingUser = await User.findOne({ username });
-    if (existingUser) {
-      return res.status(400).json({ message: 'User already exists' });
-    }
-    
-    // Hash password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
-    
-    // Create new user
-    const newUser = new User({
-      username,
-      password: hashedPassword
-    });
-    
-    await newUser.save();
-    
-    // Create JWT token
-    const token = jwt.sign(
-      { id: newUser._id },
-      process.env.JWT_SECRET || 'your-secret-key',
-      { expiresIn: '1d' }
-    );
-    
-    res.status(201).json({
-      token,
-      user: {
-        id: newUser._id,
-        username: newUser.username
-      }
-    });
-  } catch (err) {
-    console.error('Registration error:', err);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-app.post('/auth/login', async (req, res) => {
-  try {
-    const { username, password } = req.body;
-    
-    // Check if user exists
-    const user = await User.findOne({ username });
-    if (!user) {
-      return res.status(400).json({ message: 'Invalid credentials' });
-    }
-    
-    // Check password
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(400).json({ message: 'Invalid credentials' });
-    }
-    
-    // Create JWT token
-    const token = jwt.sign(
-      { id: user._id },
-      process.env.JWT_SECRET || 'your-secret-key',
-      { expiresIn: '1d' }
-    );
-    
-    res.json({
-      token,
-      user: {
-        id: user._id,
-        username: user.username
-      }
-    });
-  } catch (err) {
-    console.error('Login error:', err);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-// Middleware to verify JWT token
+// Auth middleware
 const auth = (req, res, next) => {
   const token = req.header('x-auth-token');
   
@@ -202,6 +68,87 @@ const auth = (req, res, next) => {
   }
 };
 
+// Auth routes
+app.post('/auth/register', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    
+    // Check if user already exists
+    const existingUser = users.find(user => user.username === username);
+    if (existingUser) {
+      return res.status(400).json({ message: 'User already exists' });
+    }
+    
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+    
+    // Create new user
+    const userId = Date.now().toString();
+    const newUser = {
+      id: userId,
+      username,
+      password: hashedPassword
+    };
+    
+    users.push(newUser);
+    
+    // Create JWT token
+    const token = jwt.sign(
+      { id: userId },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '1d' }
+    );
+    
+    res.status(201).json({
+      token,
+      user: {
+        id: userId,
+        username: newUser.username
+      }
+    });
+  } catch (err) {
+    console.error('Registration error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+app.post('/auth/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    
+    // Check if user exists
+    const user = users.find(user => user.username === username);
+    if (!user) {
+      return res.status(400).json({ message: 'Invalid credentials' });
+    }
+    
+    // Check password
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ message: 'Invalid credentials' });
+    }
+    
+    // Create JWT token
+    const token = jwt.sign(
+      { id: user.id },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '1d' }
+    );
+    
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        username: user.username
+      }
+    });
+  } catch (err) {
+    console.error('Login error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // API routes with version
 app.post('/api/v1/analyze-meal', auth, upload.single('image'), async (req, res) => {
   try {
@@ -209,78 +156,80 @@ app.post('/api/v1/analyze-meal', auth, upload.single('image'), async (req, res) 
       return res.status(400).json({ message: 'No image uploaded' });
     }
     
-    // In a real app, you would analyze the image here
-    // For this demo, we'll simulate the analysis
+    // In a real app, we would analyze the image here
+    // For demo purposes, we'll just return some mock data
+    
+    // Generate a random meal analysis
     const isComplete = Math.random() > 0.5;
+    const proteins = Math.floor(Math.random() * 30) + 10;
+    const carbs = Math.floor(Math.random() * 50) + 20;
+    const fats = Math.floor(Math.random() * 20) + 5;
+    const calories = proteins * 4 + carbs * 4 + fats * 9;
     
-    let analysis;
-    if (isComplete) {
-      analysis = {
-        userId: req.user.id,
-        imagePath: req.file.path,
-        status: 'complete',
-        message: 'Your meal appears to be nutritionally balanced with a good mix of proteins, carbohydrates, and vegetables.',
-        nutrition: {
-          calories: Math.floor(Math.random() * 300) + 500,
-          protein: Math.floor(Math.random() * 20) + 20,
-          carbs: Math.floor(Math.random() * 30) + 40,
-          fat: Math.floor(Math.random() * 15) + 15,
-          fiber: Math.floor(Math.random() * 5) + 5
-        },
-        suggestions: []
-      };
-    } else {
-      analysis = {
-        userId: req.user.id,
-        imagePath: req.file.path,
-        status: 'incomplete',
-        message: 'Your meal appears to be missing some key nutritional components.',
-        nutrition: {
-          calories: Math.floor(Math.random() * 200) + 300,
-          protein: Math.floor(Math.random() * 10) + 10,
-          carbs: Math.floor(Math.random() * 20) + 30,
-          fat: Math.floor(Math.random() * 10) + 5,
-          fiber: Math.floor(Math.random() * 3) + 2
-        },
-        suggestions: [
-          'Add a source of lean protein like chicken, fish, or tofu',
-          'Include more vegetables for fiber and micronutrients',
-          'Consider adding a whole grain for complex carbohydrates',
-          'Add a small portion of healthy fats like avocado or nuts'
-        ]
-      };
-    }
+    // Save the image (in memory for serverless)
+    const imageBuffer = req.file.buffer;
+    const imageName = `meal_${Date.now()}.jpg`;
     
-    const mealAnalysis = new MealAnalysis(analysis);
-    await mealAnalysis.save();
+    // Create meal analysis record
+    const mealAnalysis = {
+      id: Date.now().toString(),
+      userId: req.user.id,
+      imagePath: `/uploads/${imageName}`,
+      imageBuffer: imageBuffer,
+      isComplete,
+      nutritionalInfo: {
+        proteins,
+        carbs,
+        fats,
+        calories
+      },
+      suggestions: isComplete ? [] : [
+        'Add more vegetables for a balanced meal',
+        'Consider adding a source of lean protein',
+        'Include whole grains for fiber'
+      ],
+      createdAt: new Date()
+    };
     
-    res.json(analysis);
+    // Save to our in-memory database
+    mealAnalyses.push(mealAnalysis);
+    
+    // Return the analysis without the image buffer
+    const responseAnalysis = { ...mealAnalysis };
+    delete responseAnalysis.imageBuffer;
+    
+    res.json(responseAnalysis);
   } catch (error) {
-    console.error('Analysis error:', error);
+    console.error('Meal analysis error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
 app.get('/api/v1/meal-history', auth, async (req, res) => {
   try {
-    const mealHistory = await MealAnalysis.find({ userId: req.user.id })
-      .sort({ createdAt: -1 });
+    // Get user's meal history from our in-memory database
+    const userMealHistory = mealAnalyses
+      .filter(meal => meal.userId === req.user.id)
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     
-    res.json(mealHistory);
+    // Return the history without the image buffers
+    const responseHistory = userMealHistory.map(meal => {
+      const mealCopy = { ...meal };
+      delete mealCopy.imageBuffer;
+      return mealCopy;
+    });
+    
+    res.json(responseHistory);
   } catch (error) {
-    console.error('History fetch error:', error);
+    console.error('Meal history error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Add a simple root route for health check
-app.get('/', (req, res) => {
-  res.json({ message: 'Meal Checker API is running' });
-});
-
-// Add a simple API route for testing
-app.get('/api', (req, res) => {
-  res.json({ message: 'Meal Checker API is ready' });
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ message: 'Something went wrong!' });
 });
 
 // Start server
@@ -290,5 +239,5 @@ if (process.env.NODE_ENV !== 'production') {
   });
 }
 
-// Export for Vercel serverless deployment
+// For serverless
 module.exports = app;
