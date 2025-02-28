@@ -262,9 +262,14 @@ app.get('/api/meal-history', auth, async (req, res) => {
   }
 });
 
-// Root route for health check
+// Add a simple root route for health check
 app.get('/', (req, res) => {
   res.json({ message: 'Meal Checker API is running' });
+});
+
+// Add a simple API route for testing
+app.get('/api', (req, res) => {
+  res.json({ message: 'Meal Checker API is ready' });
 });
 
 // Start server
