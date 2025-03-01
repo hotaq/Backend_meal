@@ -13,9 +13,17 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Connect to MongoDB
-mongoose.connect(process.env.MONGODB_URI)
+const mongoURI = process.env.MONGODB_URI || 'mongodb+srv://65chinnaphatck:uxClLbDgDKcUhlzG@cluster0.ikxpe.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
+mongoose.connect(mongoURI, { 
+  useNewUrlParser: true, 
+  useUnifiedTopology: true,
+  serverSelectionTimeoutMS: 5000
+})
   .then(() => console.log('Connected to MongoDB'))
-  .catch(err => console.error('Could not connect to MongoDB', err));
+  .catch(err => {
+    console.error('Could not connect to MongoDB', err);
+    // Continue running the app even if MongoDB connection fails
+  });
 
 // Define MongoDB Schemas and Models
 const userSchema = new mongoose.Schema({
@@ -45,9 +53,11 @@ const Meal = mongoose.model('Meal', mealSchema);
 // Middleware
 app.use(cors({
   origin: ['http://127.0.0.1:5500', 'http://localhost:5500', 'http://localhost:8000', 'http://127.0.0.1:8000', 
-           'https://backend-meal-iciagr2fc-hotaqs-projects.vercel.app', 'https://backend-meal-4dj6jlz8w-hotaqs-projects.vercel.app',
-           'https://backend-meal-jxb8y4xr3-hotaqs-projects.vercel.app', 'https://backend-meal-pctbnhj4i-hotaqs-projects.vercel.app'],
+           'https://backend-meal-j17lmxans-hotaqs-projects.vercel.app', 'https://backend-meal-4dj6jlz8w-hotaqs-projects.vercel.app',
+           'https://backend-meal-jxb8y4xr3-hotaqs-projects.vercel.app', 'https://backend-meal-pctbnhj4i-hotaqs-projects.vercel.app',
+           'https://frontend-ny5mzoauh-hotaqs-projects.vercel.app'],
   credentials: true,
+  
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token']
 }));
@@ -55,7 +65,9 @@ app.use(express.json());
 
 app.use((req,res,next)=> {
   res.header('Access-Control-Allow-Origin', '*');
-  next();})
+  next();
+})
+
 // For local development, serve static files
 if (process.env.NODE_ENV !== 'production') {
   app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
