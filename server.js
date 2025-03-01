@@ -7,7 +7,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const mongoose = require('mongoose');
-
+const core = require('cors');
 // Initialize express app
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -55,7 +55,7 @@ app.use(cors({
   origin: ['http://127.0.0.1:5500', 'http://localhost:5500', 'http://localhost:8000', 'http://127.0.0.1:8000', 
            'https://backend-meal-j17lmxans-hotaqs-projects.vercel.app', 'https://backend-meal-4dj6jlz8w-hotaqs-projects.vercel.app',
            'https://backend-meal-jxb8y4xr3-hotaqs-projects.vercel.app', 'https://backend-meal-pctbnhj4i-hotaqs-projects.vercel.app',
-           'https://frontend-ny5mzoauh-hotaqs-projects.vercel.app', 'https://frontend-dlio7ifci-hotaqs-projects.vercel.app'],
+           'https://frontend-ny5mzoauh-hotaqs-projects.vercel.app', 'https://frontend-dlio7ifci-hotaqs-projects.vercel.app' ,'https://frontend-dlio7ifci-hotaqs-projects.vercel.app'],
   credentials: true,
   
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
