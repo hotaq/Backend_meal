@@ -7,7 +7,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const mongoose = require('mongoose');
-const core = require('cors');
+
 // Initialize express app
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -50,77 +50,17 @@ const mealSchema = new mongoose.Schema({
 const User = mongoose.model('User', userSchema);
 const Meal = mongoose.model('Meal', mealSchema);
 
-// CORS middleware for Vercel serverless functions
-const allowCors = fn => async (req, res) => {
-  res.setHeader('Access-Control-Allow-Credentials', true);
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  // another common pattern
-  // res.setHeader('Access-Control-Allow-Origin', req.headers.origin);
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization, x-auth-token'
-  );
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
-  }
-  return await fn(req, res);
-};
+// Apply CORS middleware directly
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token', 'X-Requested-With', 'Accept']
+}));
 
-// Wrap all route handlers with the CORS middleware
-const wrapWithCors = (app) => {
-  const originalGet = app.get.bind(app);
-  const originalPost = app.post.bind(app);
-  const originalPut = app.put.bind(app);
-  const originalDelete = app.delete.bind(app);
-
-  app.get = (path, ...handlers) => {
-    const wrappedHandlers = handlers.map(handler => 
-      typeof handler === 'function' ? allowCors(handler) : handler
-    );
-    return originalGet(path, ...wrappedHandlers);
-  };
-
-  app.post = (path, ...handlers) => {
-    const wrappedHandlers = handlers.map(handler => 
-      typeof handler === 'function' ? allowCors(handler) : handler
-    );
-    return originalPost(path, ...wrappedHandlers);
-  };
-
-  app.put = (path, ...handlers) => {
-    const wrappedHandlers = handlers.map(handler => 
-      typeof handler === 'function' ? allowCors(handler) : handler
-    );
-    return originalPut(path, ...wrappedHandlers);
-  };
-
-  app.delete = (path, ...handlers) => {
-    const wrappedHandlers = handlers.map(handler => 
-      typeof handler === 'function' ? allowCors(handler) : handler
-    );
-    return originalDelete(path, ...wrappedHandlers);
-  };
-
-  return app;
-};
-
-// Apply CORS wrapper to app
-wrapWithCors(app);
+// Add OPTIONS handling for preflight requests
+app.options('*', cors());
 
 // Middleware
-app.use(cors({
-  origin: ['http://127.0.0.1:5500', 'http://localhost:5500', 'http://localhost:8000', 'http://127.0.0.1:8000', 
-           'https://backend-meal-j17lmxans-hotaqs-projects.vercel.app', 'https://backend-meal-4dj6jlz8w-hotaqs-projects.vercel.app',
-           'https://backend-meal-jxb8y4xr3-hotaqs-projects.vercel.app', 'https://backend-meal-pctbnhj4i-hotaqs-projects.vercel.app',
-           'https://frontend-ny5mzoauh-hotaqs-projects.vercel.app', 'https://frontend-dlio7ifci-hotaqs-projects.vercel.app' ,
-           'https://frontend-dlio7ifci-hotaqs-projects.vercel.app','https://frontend-5ny3wa709-hotaqs-projects.vercel.app'],
-  credentials: true,
-  
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token']
-}));
 app.use(express.json());
 
 // Additional CORS handling middleware
