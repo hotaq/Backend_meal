@@ -1,61 +1,21 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const mongoose = require('mongoose');
+const { google } = require('googleapis');
 
 // Initialize express app
 const app = express();
 const PORT = process.env.PORT || 5000;
-
-// Connect to MongoDB
-const mongoURI = process.env.MONGODB_URI || 'mongodb+srv://65chinnaphatck:uxClLbDgDKcUhlzG@cluster0.ikxpe.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
-mongoose.connect(mongoURI, { 
-  useNewUrlParser: true, 
-  useUnifiedTopology: true,
-  serverSelectionTimeoutMS: 5000
-})
-  .then(() => console.log('Connected to MongoDB'))
-  .catch(err => {
-    console.error('Could not connect to MongoDB', err);
-    // Continue running the app even if MongoDB connection fails
-  });
-
-// Define MongoDB Schemas and Models
-const userSchema = new mongoose.Schema({
-  username: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-  createdAt: { type: Date, default: Date.now }
-});
-
-const mealSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  imagePath: { type: String },
-  imageBuffer: { type: Buffer },
-  isComplete: { type: Boolean, default: false },
-  nutritionalInfo: {
-    proteins: { type: Number },
-    carbs: { type: Number },
-    fats: { type: Number },
-    calories: { type: Number }
-  },
-  suggestions: [{ type: String }],
-  createdAt: { type: Date, default: Date.now }
-});
-
-const User = mongoose.model('User', userSchema);
-const Meal = mongoose.model('Meal', mealSchema);
 
 // CORS handling - must be before other middleware
 // Enable CORS for all routes and all origins
 app.use(function(req, res, next) {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, x-auth-token");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
   
   // Handle preflight requests
   if (req.method === 'OPTIONS') {
@@ -87,6 +47,166 @@ const upload = multer({
   }
 });
 
+// Google Sheets API Configuration
+// You need to create a service account and share your Google Sheet with it
+// Then download the credentials JSON file and set it as an environment variable
+// or store it securely in your project
+const GOOGLE_SHEETS_CONFIG = process.env.GOOGLE_SHEETS_CONFIG 
+  ? JSON.parse(process.env.GOOGLE_SHEETS_CONFIG) 
+  : {
+      "type": "service_account",
+      "project_id": "your-project-id",
+      "private_key_id": "your-private-key-id",
+      "private_key": "your-private-key",
+      "client_email": "your-service-account-email",
+      "client_id": "your-client-id",
+      "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+      "token_uri": "https://oauth2.googleapis.com/token",
+      "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+      "client_x509_cert_url": "your-cert-url"
+    };
+
+const SPREADSHEET_ID = process.env.SPREADSHEET_ID || 'your-spreadsheet-id';
+const SHEET_NAME = 'MealData';
+
+// Function to authenticate with Google Sheets API
+async function getGoogleSheetsAuth() {
+  const auth = new google.auth.GoogleAuth({
+    credentials: GOOGLE_SHEETS_CONFIG,
+    scopes: ['https://www.googleapis.com/auth/spreadsheets']
+  });
+
+  const client = await auth.getClient();
+  return google.sheets({ version: 'v4', auth: client });
+}
+
+// Function to append data to Google Sheet
+async function appendToSheet(data) {
+  try {
+    const sheets = await getGoogleSheetsAuth();
+    
+    // Format the data for Google Sheets
+    const values = [
+      [
+        new Date().toISOString(),
+        data.imagePath || '',
+        data.isComplete ? 'Yes' : 'No',
+        data.nutritionalInfo?.proteins || 0,
+        data.nutritionalInfo?.carbs || 0,
+        data.nutritionalInfo?.fats || 0,
+        data.nutritionalInfo?.calories || 0,
+        data.suggestions ? data.suggestions.join(', ') : ''
+      ]
+    ];
+    
+    // Append the data to the sheet
+    const response = await sheets.spreadsheets.values.append({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${SHEET_NAME}!A:H`,
+      valueInputOption: 'RAW',
+      insertDataOption: 'INSERT_ROWS',
+      resource: { values }
+    });
+    
+    return response.data;
+  } catch (error) {
+    console.error('Error appending to Google Sheet:', error);
+    throw error;
+  }
+}
+
+// Function to get data from Google Sheet
+async function getSheetData() {
+  try {
+    const sheets = await getGoogleSheetsAuth();
+    
+    // Get all data from the sheet
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${SHEET_NAME}!A:H`
+    });
+    
+    const rows = response.data.values || [];
+    
+    // Skip header row and format the data
+    if (rows.length <= 1) {
+      return [];
+    }
+    
+    return rows.slice(1).map((row, index) => {
+      return {
+        id: index,
+        createdAt: row[0] || new Date().toISOString(),
+        imagePath: row[1] || '',
+        isComplete: row[2] === 'Yes',
+        nutritionalInfo: {
+          proteins: parseFloat(row[3]) || 0,
+          carbs: parseFloat(row[4]) || 0,
+          fats: parseFloat(row[5]) || 0,
+          calories: parseFloat(row[6]) || 0
+        },
+        suggestions: row[7] ? row[7].split(', ') : []
+      };
+    });
+  } catch (error) {
+    console.error('Error getting data from Google Sheet:', error);
+    throw error;
+  }
+}
+
+// Initialize Google Sheet if it doesn't exist
+async function initializeGoogleSheet() {
+  try {
+    const sheets = await getGoogleSheetsAuth();
+    
+    // Check if the sheet exists
+    const response = await sheets.spreadsheets.get({
+      spreadsheetId: SPREADSHEET_ID
+    });
+    
+    const sheetExists = response.data.sheets.some(
+      sheet => sheet.properties.title === SHEET_NAME
+    );
+    
+    if (!sheetExists) {
+      // Create the sheet
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: SPREADSHEET_ID,
+        resource: {
+          requests: [
+            {
+              addSheet: {
+                properties: {
+                  title: SHEET_NAME
+                }
+              }
+            }
+          ]
+        }
+      });
+      
+      // Add header row
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `${SHEET_NAME}!A1:H1`,
+        valueInputOption: 'RAW',
+        resource: {
+          values: [['Timestamp', 'ImagePath', 'IsComplete', 'Proteins', 'Carbs', 'Fats', 'Calories', 'Suggestions']]
+        }
+      });
+      
+      console.log(`Sheet "${SHEET_NAME}" created and initialized`);
+    } else {
+      console.log(`Sheet "${SHEET_NAME}" already exists`);
+    }
+  } catch (error) {
+    console.error('Error initializing Google Sheet:', error);
+  }
+}
+
+// Try to initialize the Google Sheet on startup
+initializeGoogleSheet().catch(console.error);
+
 // Add a simple root route for health check
 app.get('/', (req, res) => {
   res.json({ message: 'Meal Checker API is running', status: 'ok', timestamp: new Date().toISOString() });
@@ -102,104 +222,8 @@ app.get('/api/test', (req, res) => {
   res.json({ message: 'Test endpoint is working', status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Auth middleware
-const auth = (req, res, next) => {
-  const token = req.header('x-auth-token');
-  
-  if (!token) {
-    return res.status(401).json({ message: 'No token, authorization denied' });
-  }
-  
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
-    req.user = decoded;
-    next();
-  } catch (error) {
-    res.status(401).json({ message: 'Token is not valid' });
-  }
-};
-
-// Auth routes
-app.post('/auth/register', async (req, res) => {
-  try {
-    const { username, password } = req.body;
-    
-    // Check if user already exists
-    const existingUser = await User.findOne({ username });
-    if (existingUser) {
-      return res.status(400).json({ message: 'User already exists' });
-    }
-    
-    // Hash password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
-    
-    // Create new user
-    const newUser = new User({
-      username,
-      password: hashedPassword
-    });
-    
-    await newUser.save();
-    
-    // Create JWT token
-    const token = jwt.sign(
-      { id: newUser._id },
-      process.env.JWT_SECRET || 'your-secret-key',
-      { expiresIn: '1d' }
-    );
-    
-    res.status(201).json({
-      token,
-      user: {
-        id: newUser._id,
-        username: newUser.username
-      }
-    });
-  } catch (err) {
-    console.error('Registration error:', err);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-app.post('/auth/login', async (req, res) => {
-  try {
-    const { username, password } = req.body;
-    
-    // Check if user exists
-    const user = await User.findOne({ username });
-    if (!user) {
-      return res.status(400).json({ message: 'Invalid credentials' });
-    }
-    
-    // Check password
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(400).json({ message: 'Invalid credentials' });
-    }
-    
-    // Create JWT token
-    const token = jwt.sign(
-      { id: user._id },
-      process.env.JWT_SECRET || 'your-secret-key',
-      { expiresIn: '1d' }
-    );
-    
-    res.json({
-      token,
-      user: {
-        id: user._id,
-        username: user.username
-      }
-    });
-  } catch (err) {
-    console.error('Login error:', err);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
 // API routes with version
-app.post('/api/v1/analyze-meal', auth, upload.single('image'), async (req, res) => {
+app.post('/api/v1/analyze-meal', upload.single('image'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ message: 'No image uploaded' });
@@ -215,15 +239,13 @@ app.post('/api/v1/analyze-meal', auth, upload.single('image'), async (req, res) 
     const fats = Math.floor(Math.random() * 20) + 5;
     const calories = proteins * 4 + carbs * 4 + fats * 9;
     
-    // Save the image (in MongoDB)
-    const imageBuffer = req.file.buffer;
+    // Save the image (in a real app, you'd save this to cloud storage)
     const imageName = `meal_${Date.now()}.jpg`;
+    const imagePath = `/uploads/${imageName}`;
     
     // Create meal analysis record
-    const mealAnalysis = new Meal({
-      userId: req.user.id,
-      imagePath: `/uploads/${imageName}`,
-      imageBuffer: imageBuffer,
+    const mealAnalysis = {
+      imagePath,
       isComplete,
       nutritionalInfo: {
         proteins,
@@ -235,37 +257,28 @@ app.post('/api/v1/analyze-meal', auth, upload.single('image'), async (req, res) 
         'Add more vegetables for a balanced meal',
         'Consider adding a source of lean protein',
         'Include whole grains for fiber'
-      ]
-    });
+      ],
+      createdAt: new Date().toISOString()
+    };
     
-    // Save to MongoDB
-    await mealAnalysis.save();
+    // Save to Google Sheets
+    await appendToSheet(mealAnalysis);
     
-    // Return the analysis without the image buffer
-    const responseAnalysis = mealAnalysis.toObject();
-    delete responseAnalysis.imageBuffer;
-    
-    res.json(responseAnalysis);
+    // Return the analysis
+    res.json(mealAnalysis);
   } catch (error) {
     console.error('Meal analysis error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-app.get('/api/v1/meal-history', auth, async (req, res) => {
+app.get('/api/v1/meal-history', async (req, res) => {
   try {
-    // Get user's meal history from MongoDB
-    const userMealHistory = await Meal.find({ userId: req.user.id })
-      .sort({ createdAt: -1 });
+    // Get meal history from Google Sheets
+    const mealHistory = await getSheetData();
     
-    // Return the history without the image buffers
-    const responseHistory = userMealHistory.map(meal => {
-      const mealObj = meal.toObject();
-      delete mealObj.imageBuffer;
-      return mealObj;
-    });
-    
-    res.json(responseHistory);
+    // Return the history
+    res.json(mealHistory);
   } catch (error) {
     console.error('Meal history error:', error);
     res.status(500).json({ message: 'Server error' });
