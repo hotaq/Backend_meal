@@ -98,12 +98,17 @@ const upload = multer({
 
 // Add a simple root route for health check
 app.get('/', (req, res) => {
-  res.json({ message: 'Meal Checker API is running' });
+  res.json({ message: 'Meal Checker API is running', status: 'ok', timestamp: new Date().toISOString() });
 });
 
 // Add a simple API route for testing
 app.get('/api', (req, res) => {
   res.json({ message: 'Meal Checker API is ready' });
+});
+
+// Add a test endpoint
+app.get('/api/test', (req, res) => {
+  res.json({ message: 'Test endpoint is working', status: 'ok', timestamp: new Date().toISOString() });
 });
 
 // Auth middleware
