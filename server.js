@@ -50,24 +50,12 @@ const mealSchema = new mongoose.Schema({
 const User = mongoose.model('User', userSchema);
 const Meal = mongoose.model('Meal', mealSchema);
 
-// Apply CORS middleware directly
-app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token', 'X-Requested-With', 'Accept']
-}));
-
-// Add OPTIONS handling for preflight requests
-app.options('*', cors());
-
-// Middleware
-app.use(express.json());
-
-// Additional CORS handling middleware
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-auth-token');
+// CORS handling - must be before other middleware
+// Enable CORS for all routes and all origins
+app.use(function(req, res, next) {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, x-auth-token");
   
   // Handle preflight requests
   if (req.method === 'OPTIONS') {
@@ -76,6 +64,9 @@ app.use((req, res, next) => {
   
   next();
 });
+
+// Regular middleware
+app.use(express.json());
 
 // For local development, serve static files
 if (process.env.NODE_ENV !== 'production') {
