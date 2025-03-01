@@ -55,7 +55,7 @@ app.use(cors({
   origin: ['http://127.0.0.1:5500', 'http://localhost:5500', 'http://localhost:8000', 'http://127.0.0.1:8000', 
            'https://backend-meal-j17lmxans-hotaqs-projects.vercel.app', 'https://backend-meal-4dj6jlz8w-hotaqs-projects.vercel.app',
            'https://backend-meal-jxb8y4xr3-hotaqs-projects.vercel.app', 'https://backend-meal-pctbnhj4i-hotaqs-projects.vercel.app',
-           'https://frontend-ny5mzoauh-hotaqs-projects.vercel.app'],
+           'https://frontend-ny5mzoauh-hotaqs-projects.vercel.app', 'https://frontend-dlio7ifci-hotaqs-projects.vercel.app'],
   credentials: true,
   
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -63,10 +63,19 @@ app.use(cors({
 }));
 app.use(express.json());
 
-app.use((req,res,next)=> {
+// Additional CORS handling middleware
+app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-auth-token');
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  
   next();
-})
+});
 
 // For local development, serve static files
 if (process.env.NODE_ENV !== 'production') {
